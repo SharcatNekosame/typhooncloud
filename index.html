@@ -6,13 +6,41 @@
     <title>即時颱風動態監測站</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: "Microsoft JhengHei", Arial, sans-serif; display: flex; flex-direction: row; }
+        /* 確保全畫面撐滿，不出現滾動條 */
+        html, body { 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden;
+            font-family: "Microsoft JhengHei", Arial, sans-serif; 
+        }
         
-        /* 左側資訊面板固定寬度 */
-        #info-panel { width: 350px; height: 100vh; background: #f8f9fa; box-shadow: 2px 0 10px rgba(0,0,0,0.1); padding: 20px; box-sizing: border-box; overflow-y: auto; z-index: 2000; flex-shrink: 0; }
+        /* 左側資訊面板：固定寬度，絕對定位 */
+        #info-panel { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 350px; 
+            height: 100%; 
+            background: #f8f9fa; 
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1); 
+            padding: 20px; 
+            box-sizing: border-box; 
+            overflow-y: auto; 
+            z-index: 2000; 
+        }
         
-        /* 右側地圖容器強制撐滿 */
-        #map { flex: 1; height: 100vh; width: 100%; position: relative; background: #aad3df; }
+        /* 右側地圖容器：直接填滿剩餘螢幕空間 */
+        #map { 
+            position: absolute;
+            top: 0;
+            left: 350px;
+            right: 0;
+            height: 100%; 
+            background: #aad3df; 
+            z-index: 1000;
+        }
 
         h2 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 22px; }
         .typhoon-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 15px; border-left: 5px solid #dc3545; }
@@ -25,10 +53,10 @@
         .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
         .status-badge { color: white; padding: 6px 12px; border-radius: 20px; font-size: 13px; display: inline-block; margin-bottom: 15px; font-weight: bold; }
         
+        /* RWD 手機板優化 */
         @media (max-width: 768px) {
-            body { flex-direction: column-reverse; }
-            #info-panel { width: 100%; height: 40vh; }
-            #map { width: 100%; height: 60vh; }
+            #info-panel { width: 100%; height: 40%; top: auto; bottom: 0; left: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+            #map { left: 0; height: 60%; top: 0; }
         }
     </style>
 </head>
@@ -46,26 +74,37 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. 先初始化地圖
-        const map = L.map('map').setView([21.0, 126.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
-            attribution: '© OpenStreetMap contributors' 
-        }).addTo(map);
+        let map;
 
-        // 2. 載入基本圖例
-        const legend = L.control({ position: 'bottomright' });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create('div', 'legend');
-            div.innerHTML += '<h4>路徑圖例</h4>';
-            div.innerHTML += '<i style="background: #ff5722; border-radius:50%"></i> 當前中心點<br>';
-            div.innerHTML += '<i style="background: #6c757d; border-radius:50%"></i> 歷史通過點<br>';
-            div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
-            div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
-            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
-            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
-            return div;
+        // 確保整個網頁的 DOM 尺寸與 CSS 都加載完畢後，再啟動地圖
+        window.onload = function() {
+            // 1. 初始化地圖
+            map = L.map('map').setView([21.0, 126.0], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+                attribution: '© OpenStreetMap contributors' 
+            }).addTo(map);
+
+            // 2. 載入基本圖例
+            const legend = L.control({ position: 'bottomright' });
+            legend.onAdd = function () {
+                const div = L.DomUtil.create('div', 'legend');
+                div.innerHTML += '<h4>路徑圖例</h4>';
+                div.innerHTML += '<i style="background: #ff5722; border-radius:50%"></i> 當前中心點<br>';
+                div.innerHTML += '<i style="background: #6c757d; border-radius:50%"></i> 歷史通過點<br>';
+                div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
+                div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
+                div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
+                div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
+                return div;
+            };
+            legend.addTo(map);
+
+            // 3. 強制刷新一次地圖尺寸，預防萬一
+            map.invalidateSize();
+
+            // 4. 開始獲取數據
+            fetchData();
         };
-        legend.addTo(map);
 
         // 靜態備案數據
         const fallbackTyphoon = {
@@ -92,38 +131,39 @@
             ]
         };
 
-        const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
-        const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
+        function fetchData() {
+            const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
+            const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
 
-        // 發送請求
-        fetch(url)
-            .then(response => {
-                if (!response.ok) throw new Error("API 響應錯誤");
-                return response.json();
-            })
-            .then(data => {
-                let tfs = data?.records?.info?.records?.typhoon_info || [];
-                let globalInfo = data?.records?.info?.records?.info || null;
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error("API 響應錯誤");
+                    return response.json();
+                })
+                .then(data => {
+                    let tfs = data?.records?.info?.records?.typhoon_info || [];
+                    let globalInfo = data?.records?.info?.records?.info || null;
 
-                if (tfs && !Array.isArray(tfs)) tfs = [tfs];
-                tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
+                    if (tfs && !Array.isArray(tfs)) tfs = [tfs];
+                    tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
 
-                if (tfs.length === 0) {
-                    useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
-                } else {
-                    document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
-                    document.getElementById('loading-status').style.background = "#dc3545";
-                    renderRealData(tfs, globalInfo);
-                }
-            })
-            .catch(error => {
-                console.error("連線異常，啟動安全備案機制:", error);
-                useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
-            })
-            .finally(() => {
-                // 無論成功或失敗，都強制在 300ms 後重繪地圖尺寸，防止白邊
-                setTimeout(() => { map.invalidateSize(); }, 300);
-            });
+                    if (tfs.length === 0) {
+                        useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
+                    } else {
+                        document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
+                        document.getElementById('loading-status').style.background = "#dc3545";
+                        renderRealData(tfs, globalInfo);
+                    }
+                })
+                .catch(error => {
+                    console.error("連線異常，啟動安全備案機制:", error);
+                    useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
+                })
+                .finally(() => {
+                    // 無論如何，最後再次刷新地圖尺寸
+                    setTimeout(() => { map.invalidateSize(); }, 200);
+                });
+        }
 
         function renderRealData(typhoonList, globalInfo) {
             const panel = document.getElementById('typhoon-details');
@@ -224,7 +264,6 @@
             `;
 
             try {
-                // 1. 繪製歷史軌跡
                 fallbackTyphoon.historyPath.forEach((loc, index) => {
                     let isCurrent = (index === fallbackTyphoon.historyPath.length - 1);
                     L.circleMarker(loc, {
@@ -237,7 +276,6 @@
                 });
                 L.polyline(fallbackTyphoon.historyPath, { color: '#6c757d', weight: 2.5 }).addTo(map);
 
-                // 2. 繪製未來預測路徑
                 const currentLoc = fallbackTyphoon.historyPath[fallbackTyphoon.historyPath.length - 1];
                 const forecastCoords = [currentLoc];
 
@@ -262,11 +300,9 @@
                     }
                 });
                 L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '6, 9' }).addTo(map);
-                
-                // 3. 安全重設視角
                 map.setView([21.0, 126.0], 5);
             } catch (err) {
-                console.error("繪圖過程發生錯誤，但已成功防禦捕獲:", err);
+                console.error("安全機制捕獲繪圖異常:", err);
             }
         }
     </script>
