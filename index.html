@@ -74,39 +74,28 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map;
+        // 【唯一的地圖初始化地方】
+        const map = L.map('map').setView([21.0, 126.0], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+            attribution: '© OpenStreetMap contributors' 
+        }).addTo(map);
 
-        // 確保整個網頁的 DOM 尺寸與 CSS 都加載完畢後，再啟動地圖
-        window.onload = function() {
-            // 1. 初始化地圖
-            map = L.map('map').setView([21.0, 126.0], 5);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
-                attribution: '© OpenStreetMap contributors' 
-            }).addTo(map);
-
-            // 2. 載入基本圖例
-            const legend = L.control({ position: 'bottomright' });
-            legend.onAdd = function () {
-                const div = L.DomUtil.create('div', 'legend');
-                div.innerHTML += '<h4>路徑圖例</h4>';
-                div.innerHTML += '<i style="background: #ff5722; border-radius:50%"></i> 當前中心點<br>';
-                div.innerHTML += '<i style="background: #6c757d; border-radius:50%"></i> 歷史通過點<br>';
-                div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
-                div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
-                div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
-                div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
-                return div;
-            };
-            legend.addTo(map);
-
-            // 3. 強制刷新一次地圖尺寸，預防萬一
-            map.invalidateSize();
-
-            // 4. 開始獲取數據
-            fetchData();
+        // 載入基本圖例
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML += '<h4>路徑圖例</h4>';
+            div.innerHTML += '<i style="background: #ff5722; border-radius:50%"></i> 當前中心點<br>';
+            div.innerHTML += '<i style="background: #6c757d; border-radius:50%"></i> 歷史通過點<br>';
+            div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
+            div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
+            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
+            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
+            return div;
         };
+        legend.addTo(map);
 
-        // 靜態備案數據
+        // 靜態備案數據（巴威颱風完整路徑）
         const fallbackTyphoon = {
             name: "BAVI (巴威)",
             time: "2026-07-09 14:00",
@@ -131,39 +120,38 @@
             ]
         };
 
-        function fetchData() {
-            const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
-            const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
+        // 當網頁載入完成後直接發送 API 請求
+        const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
+        const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
 
-            fetch(url)
-                .then(response => {
-                    if (!response.ok) throw new Error("API 響應錯誤");
-                    return response.json();
-                })
-                .then(data => {
-                    let tfs = data?.records?.info?.records?.typhoon_info || [];
-                    let globalInfo = data?.records?.info?.records?.info || null;
+        fetch(url)
+            .then(response => {
+                if (!response.ok) throw new Error("API 響應錯誤");
+                return response.json();
+            })
+            .then(data => {
+                let tfs = data?.records?.info?.records?.typhoon_info || [];
+                let globalInfo = data?.records?.info?.records?.info || null;
 
-                    if (tfs && !Array.isArray(tfs)) tfs = [tfs];
-                    tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
+                if (tfs && !Array.isArray(tfs)) tfs = [tfs];
+                tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
 
-                    if (tfs.length === 0) {
-                        useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
-                    } else {
-                        document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
-                        document.getElementById('loading-status').style.background = "#dc3545";
-                        renderRealData(tfs, globalInfo);
-                    }
-                })
-                .catch(error => {
-                    console.error("連線異常，啟動安全備案機制:", error);
-                    useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
-                })
-                .finally(() => {
-                    // 無論如何，最後再次刷新地圖尺寸
-                    setTimeout(() => { map.invalidateSize(); }, 200);
-                });
-        }
+                if (tfs.length === 0) {
+                    useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
+                } else {
+                    document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
+                    document.getElementById('loading-status').style.background = "#dc3545";
+                    renderRealData(tfs, globalInfo);
+                }
+            })
+            .catch(error => {
+                console.error("連線異常，啟動安全備案機制:", error);
+                useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
+            })
+            .finally(() => {
+                // 強制在 300ms 後重繪地圖尺寸，徹底消滅白邊
+                setTimeout(() => { map.invalidateSize(); }, 300);
+            });
 
         function renderRealData(typhoonList, globalInfo) {
             const panel = document.getElementById('typhoon-details');
@@ -264,6 +252,7 @@
             `;
 
             try {
+                // 1. 繪製歷史軌跡
                 fallbackTyphoon.historyPath.forEach((loc, index) => {
                     let isCurrent = (index === fallbackTyphoon.historyPath.length - 1);
                     L.circleMarker(loc, {
@@ -276,6 +265,7 @@
                 });
                 L.polyline(fallbackTyphoon.historyPath, { color: '#6c757d', weight: 2.5 }).addTo(map);
 
+                // 2. 繪製未來預測路徑
                 const currentLoc = fallbackTyphoon.historyPath[fallbackTyphoon.historyPath.length - 1];
                 const forecastCoords = [currentLoc];
 
@@ -300,6 +290,8 @@
                     }
                 });
                 L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '6, 9' }).addTo(map);
+                
+                // 調整地圖中心視角
                 map.setView([21.0, 126.0], 5);
             } catch (err) {
                 console.error("安全機制捕獲繪圖異常:", err);
