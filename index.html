@@ -1,302 +1,85 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>即時颱風動態監測站</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        /* 確保全畫面撐滿，不出現滾動條 */
-        html, body { 
-            margin: 0; 
-            padding: 0; 
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden;
-            font-family: "Microsoft JhengHei", Arial, sans-serif; 
-        }
-        
-        /* 左側資訊面板：固定寬度，絕對定位 */
-        #info-panel { 
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 350px; 
-            height: 100%; 
-            background: #f8f9fa; 
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1); 
-            padding: 20px; 
-            box-sizing: border-box; 
-            overflow-y: auto; 
-            z-index: 2000; 
-        }
-        
-        /* 右側地圖容器：直接填滿剩餘螢幕空間 */
-        #map { 
-            position: absolute;
-            top: 0;
-            left: 350px;
-            right: 0;
-            height: 100%; 
-            background: #aad3df; 
-            z-index: 1000;
-        }
+import requests
+import folium
+from folium.plugins import TimestampedGeoJson
 
-        h2 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 22px; }
-        .typhoon-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 15px; border-left: 5px solid #dc3545; }
-        .typhoon-name { font-size: 20px; font-weight: bold; color: #dc3545; }
-        .data-row { margin: 8px 0; font-size: 14px; color: #555; line-height: 1.4; }
-        .data-label { font-weight: bold; color: #222; }
-        .alert-box { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 12px; border-radius: 5px; font-size: 13px; margin-top: 10px; line-height: 1.5; text-align: justify; }
-        
-        .legend { background: white; padding: 15px; line-height: 1.5em; box-shadow: 0 0 15px rgba(0,0,0,0.2); border-radius: 5px; }
-        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
-        .status-badge { color: white; padding: 6px 12px; border-radius: 20px; font-size: 13px; display: inline-block; margin-bottom: 15px; font-weight: bold; }
-        
-        /* RWD 手機板優化 */
-        @media (max-width: 768px) {
-            #info-panel { width: 100%; height: 40%; top: auto; bottom: 0; left: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
-            #map { left: 0; height: 60%; top: 0; }
-        }
-    </style>
-</head>
-<body>
+# 1. 設定 API 網址
+url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C&format=JSON"
 
-    <div id="info-panel">
-        <h2>🌀 颱風即時動態</h2>
-        <div id="loading-status" class="status-badge" style="background:#6c757d;">系統連線中...</div>
-        <div id="typhoon-details">
-            <p style="color:#777;">正在等待氣象署資料加載...</p>
-        </div>
-    </div>
-
-    <div id="map"></div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        // 【唯一的地圖初始化地方】
-        const map = L.map('map').setView([21.0, 126.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
-            attribution: '© OpenStreetMap contributors' 
-        }).addTo(map);
-
-        // 載入基本圖例
-        const legend = L.control({ position: 'bottomright' });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create('div', 'legend');
-            div.innerHTML += '<h4>路徑圖例</h4>';
-            div.innerHTML += '<i style="background: #ff5722; border-radius:50%"></i> 當前中心點<br>';
-            div.innerHTML += '<i style="background: #6c757d; border-radius:50%"></i> 歷史通過點<br>';
-            div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
-            div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
-            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
-            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
-            return div;
-        };
-        legend.addTo(map);
-
-        // 靜態備案數據（巴威颱風完整路徑）
-        const fallbackTyphoon = {
-            name: "BAVI (巴威)",
-            time: "2026-07-09 14:00",
-            pressure: 925,
-            wind: 51,
-            r7: 380,
-            headline: "海上颱風警報 (第9號強烈颱風)",
-            desc: "根據中央氣象署最新資料顯示，第9號颱風中心目前在鵝鑾鼻東南東方海面，向北北西轉西北移動，其暴風圈正逐漸朝巴士海峽及臺灣東南部海面接近，對上述海面將構成威脅。",
-            historyPath: [
-                [11.5, 142.0], [12.0, 140.5], [12.2, 139.0], [12.1, 137.5], 
-                [11.8, 136.0], [12.0, 134.5], [12.5, 133.5], [13.0, 132.5],
-                [13.8, 131.8], [14.6, 131.2], [15.5, 130.8], [16.5, 130.4],
-                [17.5, 129.8], [18.70, 129.00] 
-            ],
-            forecastPath: [
-                { loc: [20.1, 127.8], time: "10日02時", r7: 380 },
-                { loc: [22.1, 126.2], time: "10日14時", r7: 380 },
-                { loc: [24.5, 124.0], time: "11日02時", r7: 380 },
-                { loc: [27.0, 122.0], time: "11日14時", r7: 380 },
-                { loc: [30.5, 120.8], time: "12日14時", r7: 380 },
-                { loc: [34.0, 121.5], time: "13日14時", r7: 380 }
-            ]
-        };
-
-        // 當網頁載入完成後直接發送 API 請求
-        const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
-        const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
-
-        fetch(url)
-            .then(response => {
-                if (!response.ok) throw new Error("API 響應錯誤");
-                return response.json();
-            })
-            .then(data => {
-                let tfs = data?.records?.info?.records?.typhoon_info || [];
-                let globalInfo = data?.records?.info?.records?.info || null;
-
-                if (tfs && !Array.isArray(tfs)) tfs = [tfs];
-                tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
-
-                if (tfs.length === 0) {
-                    useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
-                } else {
-                    document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
-                    document.getElementById('loading-status').style.background = "#dc3545";
-                    renderRealData(tfs, globalInfo);
-                }
-            })
-            .catch(error => {
-                console.error("連線異常，啟動安全備案機制:", error);
-                useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
-            })
-            .finally(() => {
-                // 強制在 300ms 後重繪地圖尺寸，徹底消滅白邊
-                setTimeout(() => { map.invalidateSize(); }, 300);
-            });
-
-        function renderRealData(typhoonList, globalInfo) {
-            const panel = document.getElementById('typhoon-details');
-            panel.innerHTML = "";
-
-            typhoonList.forEach(tf => {
-                const tName = tf.typhoon_name || tf.typhoonName || "未命名";
-                const tcName = tf.cwa_typhoon_name || tf.cwbTyphoonName || "";
-                const nameInfo = `${tName} ${tcName ? '(' + tcName + ')' : ''}`;
-
-                const card = document.createElement('div');
-                card.className = 'typhoon-card';
-
-                let currentStatusHtml = "";
-                const historyCoords = [];
-
-                const rawPos = tf.analysis?.position || tf.analysis?.fix?.coordinate;
-                if (rawPos) {
-                    const [lat, lng] = rawPos.split(',').map(Number);
-                    if (!isNaN(lat) && !isNaN(lng)) historyCoords.push([lat, lng]);
-
-                    const obsTime = tf.analysis?.time || tf.analysis?.fix?.fixTime || "--";
-                    const pressure = tf.analysis?.pressure || tf.analysis?.fix?.pressure || "--";
-                    const maxWinds = tf.analysis?.max_winds || tf.analysis?.fix?.maxWindSpeed || "--";
-                    const r7 = tf.analysis?.radius_of_15ms?.value || tf.analysis?.lowWindRadius?.radius || "--";
-
-                    currentStatusHtml = `
-                        <div class="data-row"><span class="data-label">⏱️ 最新觀測時間：</span>${obsTime}</div>
-                        <div class="data-row"><span class="data-label">🎯 中心最低氣壓：</span>${pressure} hPa</div>
-                        <div class="data-row"><span class="data-label">💨 近中心最大風速：</span>${maxWinds} m/s</div>
-                        <div class="data-row"><span class="data-label">🌀 七級風暴風半徑：</span>${r7} 公里</div>
-                    `;
-                }
-
-                let headline = globalInfo?.headline || "海上颱風警報";
-                let descText = "請密切注意中央氣象署發布之最新颱風動態。";
+try:
+    response = requests.get(url)
+    data = response.json()
+    
+    # 取得颱風消息
+    typhoons = data['records']['tropicalCyclones']['tropicalCyclone']
+    
+    if not typhoons:
+        print("目前可能沒有發布中的颱風資料。")
+    else:
+        for info in typhoons:
+            typhoon_name = info['typhoonName']
+            print(f"正在處理颱風：{typhoon_name}")
+            
+            # 建立地圖底圖（初始中心設在台灣附近）
+            m = folium.Map(location=[23.5, 121.0], zoom_start=5, control_scale=True)
+            
+            # 用來儲存路徑軌跡的經緯度點
+            path_points = []
+            
+            # 解析觀測（過去）與預測（未來）資料
+            analysis_data = info.get('analysis_and_forecast', {}).get('analysis', [])
+            forecast_data = info.get('analysis_and_forecast', {}).get('forecast', [])
+            
+            # 合併所有點位進行繪製
+            all_points = analysis_data + forecast_data
+            
+            for point in all_points:
+                lat = float(point['position']['latitude'])
+                lng = float(point['position']['longitude'])
+                time_str = point['time']['obsTime'] if 'obsTime' in point['time'] else point['time'].get('forecastTime', '')
+                pressure = point.get('pressure', 'N/A')
+                max_wind = point.get('maxWindSpeed', 'N/A')
                 
-                if (globalInfo?.description?.section) {
-                    const sections = Array.isArray(globalInfo.description.section) ? globalInfo.description.section : [globalInfo.description.section];
-                    const targetSec = sections.find(s => s.title === "颱風動態" || s.title === "概況" || s.title === "颱風現況");
-                    if (targetSec && targetSec.value) descText = targetSec.value;
-                }
-
-                card.innerHTML = `
-                    <div class="typhoon-name">🌀 ${nameInfo}</div>
-                    <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                    ${currentStatusHtml}
-                    <div class="data-row" style="margin-top:15px;"><span class="data-label">📢 警報頭條：</span></div>
-                    <div style="font-weight:bold; color:#cd201f; font-size:15px;">${headline}</div>
-                    <div class="alert-box"><b>最新動態公告：</b><br>${descText}</div>
-                `;
-                panel.appendChild(card);
-
-                if (historyCoords.length > 0) {
-                    L.circleMarker(historyCoords[0], { radius: 8, fillColor: '#ff5722', color: '#fff', weight: 1, fillOpacity: 1 }).addTo(map).bindPopup(`<b>🌀 ${nameInfo} 當前中心</b>`);
-                    map.setView(historyCoords[0], 5);
-                }
-
-                const rawForecasts = tf.prediction || tf.forecast?.forecastPosition;
-                if (rawForecasts) {
-                    const preds = Array.isArray(rawForecasts) ? rawForecasts : [rawForecasts];
-                    const forecastCoords = historyCoords.length > 0 ? [historyCoords[0]] : [];
-
-                    preds.forEach(pred => {
-                        const pPos = pred.position || pred.coordinate;
-                        if (!pPos) return;
-                        const [lat, lng] = pPos.split(',').map(Number);
-                        if (!isNaN(lat) && !isNaN(lng)) {
-                            forecastCoords.push([lat, lng]);
-                            let r7Val = parseFloat(pred.radius_of_15ms?.value) || parseFloat(pred.circle7?.radius) || 0;
-                            L.circleMarker([lat, lng], { radius: 5, fillColor: '#dc3545', color: '#fff', weight: 1, fillOpacity: 0.9 }).addTo(map);
-                            if (r7Val > 0) L.circle([lat, lng], { radius: r7Val * 1000, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.03 }).addTo(map);
-                        }
-                    });
-                    if (forecastCoords.length > 1) L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '5, 10' }).addTo(map);
-                }
-            });
-        }
-
-        function useFallbackModule(statusText, badgeColor) {
-            document.getElementById('loading-status').innerHTML = statusText;
-            document.getElementById('loading-status').style.background = badgeColor;
-
-            const panel = document.getElementById('typhoon-details');
-            panel.innerHTML = `
-                <div class="typhoon-card">
-                    <div class="typhoon-name">🌀 ${fallbackTyphoon.name}</div>
-                    <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                    <div class="data-row"><span class="data-label">⏱️ 最新觀測時間：</span>${fallbackTyphoon.time}</div>
-                    <div class="data-row"><span class="data-label">💪 颱風強度：</span>強烈颱風</div>
-                    <div class="data-row"><span class="data-label">🎯 中心最低氣壓：</span>${fallbackTyphoon.pressure} hPa</div>
-                    <div class="data-row"><span class="data-label">💨 近中心最大風速：</span>${fallbackTyphoon.wind} m/s</div>
-                    <div class="data-row"><span class="data-label">🌀 七級風暴風半徑：</span>${fallbackTyphoon.r7} 公里</div>
-                    <div class="data-row" style="margin-top:15px;"><span class="data-label">📢 警報頭條：</span></div>
-                    <div style="font-weight:bold; color:#cd201f; font-size:15px;">${fallbackTyphoon.headline}</div>
-                    <div class="alert-box"><b>最新動態公告：</b><br>${fallbackTyphoon.desc}</div>
-                </div>
-            `;
-
-            try {
-                // 1. 繪製歷史軌跡
-                fallbackTyphoon.historyPath.forEach((loc, index) => {
-                    let isCurrent = (index === fallbackTyphoon.historyPath.length - 1);
-                    L.circleMarker(loc, {
-                        radius: isCurrent ? 8 : 4,
-                        fillColor: isCurrent ? '#ff5722' : '#6c757d', 
-                        color: '#fff',
-                        weight: 1,
-                        fillOpacity: 1
-                    }).addTo(map).bindPopup(isCurrent ? "<b>🌀 巴威颱風 當前中心點</b>" : `歷史通過點`);
-                });
-                L.polyline(fallbackTyphoon.historyPath, { color: '#6c757d', weight: 2.5 }).addTo(map);
-
-                // 2. 繪製未來預測路徑
-                const currentLoc = fallbackTyphoon.historyPath[fallbackTyphoon.historyPath.length - 1];
-                const forecastCoords = [currentLoc];
-
-                fallbackTyphoon.forecastPath.forEach(fc => {
-                    forecastCoords.push(fc.loc);
-                    L.circleMarker(fc.loc, {
-                        radius: 5,
-                        fillColor: '#dc3545',
-                        color: '#fff',
-                        weight: 1,
-                        fillOpacity: 0.9
-                    }).addTo(map);
-
-                    if (fc.r7 > 0) {
-                        L.circle(fc.loc, {
-                            radius: fc.r7 * 1000,
-                            color: '#dc3545',
-                            weight: 1,
-                            fillColor: '#dc3545',
-                            fillOpacity: 0.03
-                        }).addTo(map);
-                    }
-                });
-                L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '6, 9' }).addTo(map);
+                path_points.append([lat, lng])
                 
-                // 調整地圖中心視角
-                map.setView([21.0, 126.0], 5);
-            } catch (err) {
-                console.error("安全機制捕獲繪圖異常:", err);
-            }
-        }
-    </script>
-</body>
-</html>
+                # 取得七級風暴風半徑 (轉換為公尺)
+                radius_7_km = point.get('circleOf7ms', {}).get('radius', 0)
+                radius_7_m = float(radius_7_km) * 1000 if radius_7_km else 0
+                
+                # 在地圖上畫出暴風圈 (七級風半徑)
+                if radius_7_m > 0:
+                    folium.Circle(
+                        location=[lat, lng],
+                        radius=radius_7_m,
+                        color='red',
+                        fill=True,
+                        fill_color='red',
+                        fill_opacity=0.1,
+                        popup=f"暴風半徑: {radius_7_km} km"
+                    ).add_to(m)
+                
+                # 標記颱風中心點
+                popup_text = f"""
+                <b>颱風名稱:</b> {typhoon_name}<br>
+                <b>時間:</b> {time_str}<br>
+                <b>中心氣壓:</b> {pressure} hPa<br>
+                <b>近中心最大風速:</b> {max_wind} m/s<br>
+                <b>位置:</b> 北緯 {lat}, 東經 {lng}
+                """
+                
+                folium.Marker(
+                    location=[lat, lng],
+                    popup=folium.Popup(popup_text, max_width=300),
+                    icon=folium.Icon(color='blue' if 'obsTime' in point['time'] else 'green', icon='info-sign')
+                ).add_to(m)
+            
+            # 畫出颱風移動路徑連線
+            if len(path_points) > 1:
+                folium.PolyLine(path_points, color='black', weight=2.5, opacity=0.8).add_to(m)
+            
+            # 儲存為 HTML 網頁檔案
+            output_filename = f"typhoon_{typhoon_name}_map.html"
+            m.save(output_filename)
+            print(f"✨ 可視化地圖已成功生成！請打開同目錄下的檔案：{output_filename}")
+
+except Exception as e:
+    print(f"讀取或解析資料時發生錯誤：{e}")
