@@ -8,10 +8,10 @@
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: "Microsoft JhengHei", Arial, sans-serif; display: flex; flex-direction: row; }
         
-        /* 左側資訊面板固定寬度，高度填滿 */
+        /* 左側資訊面板固定寬度 */
         #info-panel { width: 350px; height: 100vh; background: #f8f9fa; box-shadow: 2px 0 10px rgba(0,0,0,0.1); padding: 20px; box-sizing: border-box; overflow-y: auto; z-index: 2000; flex-shrink: 0; }
         
-        /* 右側地圖容器強制撐滿剩餘空間 */
+        /* 右側地圖容器強制撐滿 */
         #map { flex: 1; height: 100vh; width: 100%; position: relative; background: #aad3df; }
 
         h2 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 22px; }
@@ -25,7 +25,6 @@
         .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
         .status-badge { color: white; padding: 6px 12px; border-radius: 20px; font-size: 13px; display: inline-block; margin-bottom: 15px; font-weight: bold; }
         
-        /* RWD 手機板排版 */
         @media (max-width: 768px) {
             body { flex-direction: column-reverse; }
             #info-panel { width: 100%; height: 40vh; }
@@ -47,13 +46,13 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 初始化地圖並確保在 CSS 計算完畢後寬高正確
-        const map = L.map('map').setView([22.0, 128.0], 5);
+        // 1. 先初始化地圖
+        const map = L.map('map').setView([21.0, 126.0], 5);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
             attribution: '© OpenStreetMap contributors' 
         }).addTo(map);
 
-        // 載入基本圖例
+        // 2. 載入基本圖例
         const legend = L.control({ position: 'bottomright' });
         legend.onAdd = function () {
             const div = L.DomUtil.create('div', 'legend');
@@ -63,12 +62,12 @@
             div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
             div.innerHTML += '<i style="border-top: 2px solid #6c757d; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 歷史軌跡線<br>';
             div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px; display:inline-block;"></i> 預估路徑線<br>';
-            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.05); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
+            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545; display:inline-block; width:16px; height:12px;"></i> 預估七級風暴風圈<br>';
             return div;
         };
         legend.addTo(map);
 
-        // 巴威颱風的完整容錯靜態備案數據（升級版：包含完整歷史與未來預報軌跡）
+        // 靜態備案數據
         const fallbackTyphoon = {
             name: "BAVI (巴威)",
             time: "2026-07-09 14:00",
@@ -77,16 +76,12 @@
             r7: 380,
             headline: "海上颱風警報 (第9號強烈颱風)",
             desc: "根據中央氣象署最新資料顯示，第9號颱風中心目前在鵝鑾鼻東南東方海面，向北北西轉西北移動，其暴風圈正逐漸朝巴士海峽及臺灣東南部海面接近，對上述海面將構成威脅。",
-            
-            // 氣象署圖表上的歷史軌跡點（從 01 日到 09 日）
             historyPath: [
                 [11.5, 142.0], [12.0, 140.5], [12.2, 139.0], [12.1, 137.5], 
                 [11.8, 136.0], [12.0, 134.5], [12.5, 133.5], [13.0, 132.5],
                 [13.8, 131.8], [14.6, 131.2], [15.5, 130.8], [16.5, 130.4],
-                [17.5, 129.8], [18.70, 129.00] // 當前中心點 (09日14時)
+                [17.5, 129.8], [18.70, 129.00] 
             ],
-            
-            // 氣象署圖表上的未來預報點
             forecastPath: [
                 { loc: [20.1, 127.8], time: "10日02時", r7: 380 },
                 { loc: [22.1, 126.2], time: "10日14時", r7: 380 },
@@ -100,25 +95,17 @@
         const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
         const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
 
+        // 發送請求
         fetch(url)
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error("API 響應錯誤");
+                return response.json();
+            })
             .then(data => {
-                let tfs = [];
-                let globalInfo = null;
+                let tfs = data?.records?.info?.records?.typhoon_info || [];
+                let globalInfo = data?.records?.info?.records?.info || null;
 
-                try {
-                    if (data?.records?.info?.records?.typhoon_info) {
-                        tfs = data.records.info.records.typhoon_info;
-                    }
-                    if (data?.records?.info?.records?.info) {
-                        globalInfo = data.records.info.records.info;
-                    }
-                } catch (err) {}
-
-                if (tfs && !Array.isArray(tfs)) {
-                    tfs = [tfs];
-                }
-                
+                if (tfs && !Array.isArray(tfs)) tfs = [tfs];
                 tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
 
                 if (tfs.length === 0) {
@@ -128,12 +115,13 @@
                     document.getElementById('loading-status').style.background = "#dc3545";
                     renderRealData(tfs, globalInfo);
                 }
-                // 確保地圖底圖有被正確完全刷新渲染
-                setTimeout(() => { map.invalidateSize(); }, 300);
             })
             .catch(error => {
-                console.error("連線異常:", error);
+                console.error("連線異常，啟動安全備案機制:", error);
                 useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
+            })
+            .finally(() => {
+                // 無論成功或失敗，都強制在 300ms 後重繪地圖尺寸，防止白邊
                 setTimeout(() => { map.invalidateSize(); }, 300);
             });
 
@@ -235,48 +223,51 @@
                 </div>
             `;
 
-            // 1. 繪製歷史軌跡（灰點 + 實線）
-            fallbackTyphoon.historyPath.forEach((loc, index) => {
-                let isCurrent = (index === fallbackTyphoon.historyPath.length - 1);
-                L.circleMarker(loc, {
-                    radius: isCurrent ? 8 : 4,
-                    fillColor: isCurrent ? '#ff5722' : '#6c757d', // 當前中心用橘紅色，其餘用灰色
-                    color: '#fff',
-                    weight: 1,
-                    fillOpacity: 1
-                }).addTo(map).bindPopup(isCurrent ? "<b>🌀 巴威颱風 當前中心點</b>" : `歷史通過點`);
-            });
-            L.polyline(fallbackTyphoon.historyPath, { color: '#6c757d', weight: 2.5 }).addTo(map);
+            try {
+                // 1. 繪製歷史軌跡
+                fallbackTyphoon.historyPath.forEach((loc, index) => {
+                    let isCurrent = (index === fallbackTyphoon.historyPath.length - 1);
+                    L.circleMarker(loc, {
+                        radius: isCurrent ? 8 : 4,
+                        fillColor: isCurrent ? '#ff5722' : '#6c757d', 
+                        color: '#fff',
+                        weight: 1,
+                        fillOpacity: 1
+                    }).addTo(map).bindPopup(isCurrent ? "<b>🌀 巴威颱風 當前中心點</b>" : `歷史通過點`);
+                });
+                L.polyline(fallbackTyphoon.historyPath, { color: '#6c757d', weight: 2.5 }).addTo(map);
 
-            // 2. 繪製未來預測路徑（紅點 + 虛線 + 暴風圈）
-            const currentLoc = fallbackTyphoon.historyPath[fallbackTyphoon.historyPath.length - 1];
-            const forecastCoords = [currentLoc];
+                // 2. 繪製未來預測路徑
+                const currentLoc = fallbackTyphoon.historyPath[fallbackTyphoon.historyPath.length - 1];
+                const forecastCoords = [currentLoc];
 
-            fallbackTyphoon.forecastPath.forEach(fc => {
-                forecastCoords.push(fc.loc);
+                fallbackTyphoon.forecastPath.forEach(fc => {
+                    forecastCoords.push(fc.loc);
+                    L.circleMarker(fc.loc, {
+                        radius: 5,
+                        fillColor: '#dc3545',
+                        color: '#fff',
+                        weight: 1,
+                        fillOpacity: 0.9
+                    }).addTo(map);
 
-                L.circleMarker(fc.loc, {
-                    radius: 5,
-                    fillColor: '#dc3545',
-                    color: '#fff',
-                    weight: 1,
-                    fillOpacity: 0.9
-                }).addTo(map).bindPopup(`<b>🔮 預報點：${fc.time}</b><br>預估暴風圈: ${fc.r7} 公里`);
-
-                L.circle(fc.loc, {
-                    radius: fc.r7 * 1000,
-                    color: '#dc3545',
-                    weight: 1,
-                    fillColor: '#dc3545',
-                    fillOpacity: 0.03
-                }).addTo(map);
-            });
-            L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '6, 9' }).addTo(map);
-
-            // 調整視角鎖定在颱風中心與台灣之間
-            map.setView([21.0, 126.0], 5);
-            // 強制觸發一次尺寸更新防白邊
-            setTimeout(() => { map.invalidateSize(); }, 100);
+                    if (fc.r7 > 0) {
+                        L.circle(fc.loc, {
+                            radius: fc.r7 * 1000,
+                            color: '#dc3545',
+                            weight: 1,
+                            fillColor: '#dc3545',
+                            fillOpacity: 0.03
+                        }).addTo(map);
+                    }
+                });
+                L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '6, 9' }).addTo(map);
+                
+                // 3. 安全重設視角
+                map.setView([21.0, 126.0], 5);
+            } catch (err) {
+                console.error("繪圖過程發生錯誤，但已成功防禦捕獲:", err);
+            }
         }
     </script>
 </body>
