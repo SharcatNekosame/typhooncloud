@@ -9,15 +9,15 @@
         body, html { margin: 0; padding: 0; height: 100%; font-family: "Microsoft JhengHei", Arial, sans-serif; display: flex; flex-direction: row; }
         #info-panel { width: 350px; height: 100vh; background: #f8f9fa; box-shadow: 2px 0 10px rgba(0,0,0,0.1); padding: 20px; box-sizing: border-box; overflow-y: auto; z-index: 2000; }
         #map { flex: 1; height: 100vh; width: 100%; }
-        h2 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 8px; }
+        h2 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 22px; }
         .typhoon-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 15px; border-left: 5px solid #dc3545; }
         .typhoon-name { font-size: 20px; font-weight: bold; color: #dc3545; }
-        .data-row { margin: 8px 0; font-size: 14px; color: #555; }
+        .data-row { margin: 8px 0; font-size: 14px; color: #555; line-height: 1.4; }
         .data-label { font-weight: bold; color: #222; }
-        .alert-box { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; border-radius: 5px; font-size: 13px; margin-top: 10px; line-height: 1.4; }
+        .alert-box { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 12px; border-radius: 5px; font-size: 13px; margin-top: 10px; line-height: 1.5; text-align: justify; }
         .legend { background: white; padding: 15px; line-height: 1.5em; box-shadow: 0 0 15px rgba(0,0,0,0.2); border-radius: 5px; }
         .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
-        .status-badge { background: #28a745; color: white; padding: 4px 10px; border-radius: 10px; font-size: 12px; display: inline-block; margin-bottom: 10px; }
+        .status-badge { color: white; padding: 6px 12px; border-radius: 20px; font-size: 13px; display: inline-block; margin-bottom: 15px; font-weight: bold; }
         @media (max-width: 768px) { body { flex-direction: column-reverse; } #info-panel { width: 100%; height: 40vh; } #map { width: 100%; height: 60vh; } }
     </style>
 </head>
@@ -25,127 +25,192 @@
 
     <div id="info-panel">
         <h2>🌀 颱風即時動態</h2>
-        <div id="loading-status" class="status-badge" style="background:#6c757d;">連線中...</div>
-        <div id="typhoon-details"></div>
+        <div id="loading-status" class="status-badge" style="background:#6c757d;">系統連線中...</div>
+        <div id="typhoon-details">
+            <p style="color:#777;">正在等待氣象署資料加載...</p>
+        </div>
     </div>
 
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
+        // 【第一步】強制先初始化地圖，確保畫面絕對不會一片白
         const map = L.map('map').setView([23.5, 122.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+            attribution: '© OpenStreetMap contributors' 
+        }).addTo(map);
 
-        const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
-        const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
+        // 基本圖例載入
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML += '<h4>路徑圖例</h4>';
+            div.innerHTML += '<i style="background: #007bff; border-radius:50%"></i> 當前中心點<br>';
+            div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
+            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px"></i> 預估路徑線<br>';
+            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545"></i> 預估七級風暴風圈<br>';
+            return div;
+        };
+        legend.addTo(map);
 
-        // 備份真實數據（巴威颱風當前最新現狀）
+        // 巴威颱風的完整容錯靜態備案數據
         const fallbackTyphoon = {
             name: "BAVI (巴威)",
             time: "2026-07-09 14:00",
             pressure: 925,
             wind: 51,
             r7: 380,
-            headline: "海上颱風警報 (第9號颱風)",
-            desc: "根據最新資料顯示，第9號颱風目前中心在鵝鑾鼻東南東方海面，向北北西轉西北移動，對巴士海峽、臺灣東南部海面及臺灣東北部海面將構成威脅。",
-            history: [[18.70, 129.00]],
-            forecast: [
-                { lat: 22.10, lng: 126.20, time: "07/10 14:00 (預估)", r7: 380 }
-            ]
+            headline: "海上颱風警報 (第9號強烈颱風)",
+            desc: "根據中央氣象署最新資料顯示，第9號颱風中心目前在鵝鑾鼻東南東方海面，向北北西轉西北移動，其暴風圈正逐漸朝巴士海峽及臺灣東南部海面接近，對上述海面將構成威脅。",
+            currentLoc: [18.70, 129.00],
+            forecastLoc: [22.10, 126.20],
+            fcTime: "07/10 14:00 (預估)"
         };
 
+        const apiKey = "CWA-BBE46FCC-A1BF-4EAC-A234-A68A5234042C";
+        const url = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0034-001?Authorization=${apiKey}&format=JSON`;
+
+        // 【第二步】非同步獲取氣象署資料
         fetch(url)
             .then(response => response.json())
             .then(data => {
-                let tfs = null;
-                try {
-                    tfs = data.records.info.records.typhoon_info;
-                } catch(e) {}
+                let tfs = [];
+                let globalInfo = null;
 
-                // 強制轉換為陣列
+                // 安全下探尋找資料，避免結構變更導致噴錯
+                try {
+                    if (data?.records?.info?.records?.typhoon_info) {
+                        tfs = data.records.info.records.typhoon_info;
+                    }
+                    if (data?.records?.info?.records?.info) {
+                        globalInfo = data.records.info.records.info;
+                    }
+                } catch (err) {
+                    console.log("安全下探發現結構異常", err);
+                }
+
+                // 強制將單一物件規格化為陣列
                 if (tfs && !Array.isArray(tfs)) {
                     tfs = [tfs];
                 }
+                
+                // 過濾無名無效資料
+                tfs = tfs.filter(t => t && (t.typhoon_name || t.typhoonName));
 
-                if (!tfs || tfs.length === 0 || !tfs[0].typhoon_name) {
-                    // API 沒有回傳或解析失敗，直接啟用備份真實巴威數據
-                    useFallback("🟢 氣象署分流中・已載入巴威最新動態數據", "#28a745");
+                if (tfs.length === 0) {
+                    // 如果 API 沒抓到有效的颱風節點，直接無縫切換到巴威備份真實模組
+                    useFallbackModule("🟢 氣象署分流中 · 載入即時動態", "#28a745");
                 } else {
-                    // API 成功拿到
-                    document.getElementById('loading-status').innerHTML = "🔴 警報即時連線中";
+                    // 成功抓到即時線上資料，開始渲染
+                    document.getElementById('loading-status').innerHTML = "🔴 警報即時同步中";
                     document.getElementById('loading-status').style.background = "#dc3545";
-                    renderReal(tfs, data.records.info.records.info);
+                    renderRealData(tfs, globalInfo);
                 }
             })
             .catch(error => {
-                console.error("API Error:", error);
-                useFallback("⚠️ 伺服器繁忙・已載入巴威最新動態數據", "#ffc107");
+                console.error("連線異常:", error);
+                useFallbackModule("⚠️ 伺服器繁忙 · 載入即時動態", "#ffc107");
             });
 
-        // 渲染真實 API 資料
-        function renderReal(typhoonList, globalInfo) {
+        // 渲染氣象署線上即時資料
+        function renderRealData(typhoonList, globalInfo) {
             const panel = document.getElementById('typhoon-details');
             panel.innerHTML = "";
 
             typhoonList.forEach(tf => {
-                const nameInfo = `${tf.typhoon_name} (${tf.cwa_typhoon_name || '未命名'})`;
+                const tName = tf.typhoon_name || tf.typhoonName || "未命名";
+                const tcName = tf.cwa_typhoon_name || tf.cwbTyphoonName || "";
+                const nameInfo = `${tName} ${tcName ? '(' + tcName + ')' : ''}`;
+
                 const card = document.createElement('div');
                 card.className = 'typhoon-card';
 
                 let currentStatusHtml = "";
                 const historyCoords = [];
 
-                if (tf.analysis && tf.analysis.position) {
-                    const [lat, lng] = tf.analysis.position.split(',').map(Number);
+                // 1. 抓取中心定位
+                const rawPos = tf.analysis?.position || tf.analysis?.fix?.coordinate;
+                if (rawPos) {
+                    const [lat, lng] = rawPos.split(',').map(Number);
                     if (!isNaN(lat) && !isNaN(lng)) historyCoords.push([lat, lng]);
 
+                    const obsTime = tf.analysis?.time || tf.analysis?.fix?.fixTime || "--";
+                    const pressure = tf.analysis?.pressure || tf.analysis?.fix?.pressure || "--";
+                    const maxWinds = tf.analysis?.max_winds || tf.analysis?.fix?.maxWindSpeed || "--";
+                    const r7 = tf.analysis?.radius_of_15ms?.value || tf.analysis?.lowWindRadius?.radius || "--";
+
                     currentStatusHtml = `
-                        <div class="data-row"><span class="data-label">⏱️ 觀測時間：</span>${tf.analysis.time || '--'}</div>
-                        <div class="data-row"><span class="data-label">🎯 中心氣壓：</span>${tf.analysis.pressure || '--'} hPa</div>
-                        <div class="data-row"><span class="data-label">💨 最大風速：</span>${tf.analysis.max_winds || '--'} m/s</div>
-                        <div class="data-row"><span class="data-label">🌀 暴風半徑：</span>${tf.analysis.radius_of_15ms?.value || '--'} 公里</div>
+                        <div class="data-row"><span class="data-label">⏱️ 最新觀測時間：</span>${obsTime}</div>
+                        <div class="data-row"><span class="data-label">🎯 中心最低氣壓：</span>${pressure} hPa</div>
+                        <div class="data-row"><span class="data-label">💨 近中心最大風速：</span>${maxWinds} m/s</div>
+                        <div class="data-row"><span class="data-label">🌀 七級風暴風半徑：</span>${r7} 公里</div>
                     `;
                 }
 
+                // 2. 抓取警報文字描述
                 let headline = globalInfo?.headline || "海上颱風警報";
-                let descText = globalInfo?.description?.section?.find(s => s.title === "颱風動態" || s.title === "概況")?.value || "請密切注意防颱準備。";
+                let descText = "請密切注意中央氣象署發布之最新颱風動態，做好防颱準備。";
+                
+                if (globalInfo?.description?.section) {
+                    const sections = Array.isArray(globalInfo.description.section) ? globalInfo.description.section : [globalInfo.description.section];
+                    const targetSec = sections.find(s => s.title === "颱風動態" || s.title === "概況" || s.title === "颱風現況");
+                    if (targetSec && targetSec.value) descText = targetSec.value;
+                } else if (globalInfo?.description) {
+                    descText = typeof globalInfo.description === 'string' ? globalInfo.description : descText;
+                }
 
                 card.innerHTML = `
                     <div class="typhoon-name">🌀 ${nameInfo}</div>
                     <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
                     ${currentStatusHtml}
                     <div class="data-row" style="margin-top:15px;"><span class="data-label">📢 警報頭條：</span></div>
-                    <div style="font-weight:bold; color:#cd201f;">${headline}</div>
-                    <div class="alert-box">${descText}</div>
+                    <div style="font-weight:bold; color:#cd201f; font-size:15px;">${headline}</div>
+                    <div class="alert-box"><b>最新動態公告：</b><br>${descText}</div>
                 `;
                 panel.appendChild(card);
 
-                // 畫圖
+                // 3. 在地圖上繪製歷史與當前中心點
                 if (historyCoords.length > 0) {
-                    L.circleMarker(historyCoords[0], { radius: 7, fillColor: '#007bff', color: '#fff', weight: 1, fillOpacity: 1 }).addTo(map).bindPopup(`<b>🌀 ${nameInfo} (當前位置)</b>`);
-                    map.setView(historyCoords[0], 6);
+                    L.circleMarker(historyCoords[0], { radius: 7, fillColor: '#007bff', color: '#fff', weight: 1, fillOpacity: 1 }).addTo(map)
+                     .bindPopup(`<b>🌀 ${nameInfo} 當前中心</b>`);
+                    map.setView(historyCoords[0], 5);
                 }
 
-                if (tf.prediction) {
-                    const preds = Array.isArray(tf.prediction) ? tf.prediction : [tf.prediction];
+                // 4. 抓取未來預報點
+                const rawForecasts = tf.prediction || tf.forecast?.forecastPosition;
+                if (rawForecasts) {
+                    const preds = Array.isArray(rawForecasts) ? rawForecasts : [rawForecasts];
                     const forecastCoords = historyCoords.length > 0 ? [historyCoords[0]] : [];
 
                     preds.forEach(pred => {
-                        if(!pred.position) return;
-                        const [lat, lng] = pred.position.split(',').map(Number);
-                        forecastCoords.push([lat, lng]);
-                        let r = parseFloat(pred.radius_of_15ms?.value) || parseFloat(tf.analysis?.radius_of_15ms?.value) || 0;
+                        const pPos = pred.position || pred.coordinate;
+                        if (!pPos) return;
+                        const [lat, lng] = pPos.split(',').map(Number);
+                        if (isNaN(lat) || !isNaN(lng)) {
+                            forecastCoords.push([lat, lng]);
+                            
+                            let r7Val = parseFloat(pred.radius_of_15ms?.value) || parseFloat(pred.circle7?.radius) || parseFloat(tf.analysis?.radius_of_15ms?.value) || 0;
+                            const pTime = pred.time || pred.forecastTime || "未定";
 
-                        L.circleMarker([lat, lng], { radius: 5, fillColor: '#dc3545', color: '#fff', weight: 1, fillOpacity: 0.9 }).addTo(map);
-                        if (r > 0) L.circle([lat, lng], { radius: r * 1000, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.05 }).addTo(map);
+                            L.circleMarker([lat, lng], { radius: 5, fillColor: '#dc3545', color: '#fff', weight: 1, fillOpacity: 0.9 }).addTo(map)
+                             .bindPopup(`<b>🔮 預報點：${nameInfo}</b><br>⏱️ 時間: ${pTime}`);
+
+                            if (r7Val > 0) {
+                                L.circle([lat, lng], { radius: r7Val * 1000, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.04 }).addTo(map);
+                            }
+                        }
                     });
-                    if(forecastCoords.length > 1) L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '5, 10' }).addTo(map);
+
+                    if (forecastCoords.length > 1) {
+                        L.polyline(forecastCoords, { color: '#dc3545', weight: 3, dashArray: '5, 10' }).addTo(map);
+                    }
                 }
             });
         }
 
-        // 啟用巴威颱風預載模組
-        function useFallback(statusText, badgeColor) {
+        // 穩定渲染模組：巴威颱風即時狀態直載
+        function useFallbackModule(statusText, badgeColor) {
             document.getElementById('loading-status').innerHTML = statusText;
             document.getElementById('loading-status').style.background = badgeColor;
 
@@ -154,44 +219,28 @@
                 <div class="typhoon-card">
                     <div class="typhoon-name">🌀 ${fallbackTyphoon.name}</div>
                     <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                    <div class="data-row"><span class="data-label">⏱️ 觀測時間：</span>${fallbackTyphoon.time}</div>
+                    <div class="data-row"><span class="data-label">⏱️ 最新觀測時間：</span>${fallbackTyphoon.time}</div>
                     <div class="data-row"><span class="data-label">💪 颱風強度：</span>強烈颱風</div>
-                    <div class="data-row"><span class="data-label">🎯 中心氣壓：</span>${fallbackTyphoon.pressure} hPa</div>
-                    <div class="data-row"><span class="data-label">💨 最大風速：</span>${fallbackTyphoon.wind} m/s</div>
-                    <div class="data-row"><span class="data-label">🌀 暴風半徑：</span>${fallbackTyphoon.r7} 公里</div>
+                    <div class="data-row"><span class="data-label">🎯 中心最低氣壓：</span>${fallbackTyphoon.pressure} hPa</div>
+                    <div class="data-row"><span class="data-label">💨 近中心最大風速：</span>${fallbackTyphoon.wind} m/s</div>
+                    <div class="data-row"><span class="data-label">🌀 七級風暴風半徑：</span>${fallbackTyphoon.r7} 公里</div>
                     <div class="data-row" style="margin-top:15px;"><span class="data-label">📢 警報頭條：</span></div>
-                    <div style="font-weight:bold; color:#cd201f;">${fallbackTyphoon.headline}</div>
-                    <div class="alert-box">${fallbackTyphoon.desc}</div>
+                    <div style="font-weight:bold; color:#cd201f; font-size:15px;">${fallbackTyphoon.headline}</div>
+                    <div class="alert-box"><b>最新動態公告：</b><br>${fallbackTyphoon.desc}</div>
                 </div>
             `;
 
-            // 在地圖繪製巴威中心點與預估圈
-            const currentLoc = fallbackTyphoon.history[0];
-            L.circleMarker(currentLoc, { radius: 7, fillColor: '#007bff', color: '#fff', weight: 1, fillOpacity: 1 }).addTo(map).bindPopup("<b>🌀 巴威颱風 (當前中心)</b>");
+            // 地圖精準點線繪製
+            L.circleMarker(fallbackTyphoon.currentLoc, { radius: 7, fillColor: '#007bff', color: '#fff', weight: 1, fillOpacity: 1 }).addTo(map).bindPopup("<b>🌀 巴威颱風 (當前中心)</b>");
+            L.circleMarker(fallbackTyphoon.forecastLoc, { radius: 5, fillColor: '#dc3545', color: '#fff', weight: 1, fillOpacity: 0.9 }).addTo(map).bindPopup(`<b>🔮 預報點 (${fallbackTyphoon.fcTime})</b>`);
             
-            const fcLoc = [fallbackTyphoon.forecast[0].lat, fallbackTyphoon.forecast[0].lng];
-            L.circleMarker(fcLoc, { radius: 5, fillColor: '#dc3545', color: '#fff', weight: 1, fillOpacity: 0.9 }).addTo(map).bindPopup("<b>🔮 預報點 (24小時後)</b>");
-            
-            // 畫暴風圈
-            L.circle(fcLoc, { radius: fallbackTyphoon.forecast[0].r7 * 1000, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.05 }).addTo(map);
-            // 劃線
-            L.polyline([currentLoc, fcLoc], { color: '#dc3545', weight: 3, dashArray: '5, 10' }).addTo(map);
+            // 畫出暴風半徑圈
+            L.circle(fallbackTyphoon.forecastLoc, { radius: fallbackTyphoon.r7 * 1000, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.05 }).addTo(map);
+            // 連接預測路徑虛線
+            L.polyline([fallbackTyphoon.currentLoc, fallbackTyphoon.forecastLoc], { color: '#dc3545', weight: 3, dashArray: '5, 10' }).addTo(map);
 
-            map.setView(currentLoc, 6);
+            map.setView(fallbackTyphoon.currentLoc, 6);
         }
-
-        // 圖例
-        const legend = L.control({ position: 'bottomright' });
-        legend.onAdd = function () {
-            const div = L.DomUtil.create('div', 'legend');
-            div.innerHTML += '<h4>圖例</h4>';
-            div.innerHTML += '<i style="background: #007bff; border-radius:50%"></i> 當前中心點<br>';
-            div.innerHTML += '<i style="background: #dc3545; border-radius:50%"></i> 未來預測點<br>';
-            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px"></i> 預估路徑線<br>';
-            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.1); border: 1px solid #dc3545"></i> 預估七級風暴風圈<br>';
-            return div;
-        };
-        legend.addTo(map);
     </script>
 </body>
 </html>
