@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>颱風路徑與預估動態地圖</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: Arial, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        .legend {
+            background: white; padding: 10px; line-height: 1.5em;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2); border-radius: 5px;
+        }
+        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 1. 初始化地圖（中心點設在台灣附近）
+        const map = L.map('map').setView([23.5, 122.0], 5);
+
+        // 2. 載入地圖底圖 (OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 3. 模擬颱風數據（你可以根據實際氣象局資料修改這裡）
+        // 歷史路徑 (已經發生的點)
+        const historyPath = [
+            { lat: 15.0, lng: 130.0, time: "07/08 06:00", info: "熱帶性低氣壓" },
+            { lat: 17.2, lng: 128.5, time: "07/08 18:00", info: "輕度颱風" },
+            { lat: 19.5, lng: 126.0, time: "07/09 06:00", info: "中度颱風 (當前位置)" }
+        ];
+
+        // 未來預估路徑 (預測點)
+        const forecastPath = [
+            { lat: 21.8, lng: 123.5, time: "07/10 06:00 (預測)", info: "強烈颱風", r: 250000 }, // r 為暴風半徑(公尺)
+            { lat: 24.2, lng: 121.0, time: "07/11 06:00 (預測)", info: "強烈颱風 (登陸)", r: 250000 },
+            { lat: 26.5, lng: 118.5, time: "07/12 06:00 (預測)", info: "輕度颱風", r: 150000 }
+        ];
+
+        // 4. 繪製歷史路徑 (實線 + 藍點)
+        const historyCoords = historyPath.map(p => [p.lat, p.lng]);
+        L.polyline(historyCoords, { color: '#007bff', weight: 4 }).addTo(map);
+
+        historyPath.forEach(p => {
+            L.circleMarker([p.lat, p.lng], {
+                radius: 6, fillColor: '#007bff', color: '#fff', weight: 2, fillOpacity: 1
+            }).addTo(map).bindPopup(`<b>${p.time}</b><br>${p.info}`);
+        });
+
+        // 5. 繪製未來預估路徑 (虛線 + 紅點 + 預報潛勢圈/暴風半徑)
+        const currentToForecastCoords = [historyCoords[historyCoords.length - 1], ...forecastPath.map(p => [p.lat, p.lng])];
+        L.polyline(currentToForecastCoords, { color: '#dc3545', weight: 4, dashArray: '5, 10' }).addTo(map);
+
+        forecastPath.forEach(p => {
+            // 紅色預測點
+            L.circleMarker([p.lat, p.lng], {
+                radius: 6, fillColor: '#dc3545', color: '#fff', weight: 2, fillOpacity: 1
+            }).addTo(map).bindPopup(`<b>${p.time}</b><br>${p.info}`);
+
+            // 繪製暴風圈或預報圓形半徑
+            L.circle([p.lat, p.lng], {
+                radius: p.r, color: '#dc3545', weight: 1, fillColor: '#dc3545', fillOpacity: 0.15
+            }).addTo(map);
+        });
+
+        // 6. 新增地圖圖例 (Legend)
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function () {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML += '<h4>颱風路徑圖例</h4>';
+            div.innerHTML += '<i style="background: #007bff"></i> 歷史路徑<br>';
+            div.innerHTML += '<i style="border-top: 2px dashed #dc3545; height:0; width:18px; margin-top:8px"></i> 未來預估路徑<br>';
+            div.innerHTML += '<i style="background: rgba(220, 53, 69, 0.2); border: 1px solid #dc3545"></i> 預報暴風範圍<br>';
+            return div;
+        };
+        legend.addTo(map);
+    </script>
+</body>
+</html>
