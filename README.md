@@ -32,7 +32,7 @@
 
 ## 專案畫面預覽
 
-*(建議可在此處補上你專案實際運作的截圖，例如顯示颱風路徑與左側資訊面板的畫面)*
+<img width="2559" height="1273" alt="image" src="https://github.com/user-attachments/assets/3dc4669a-1d79-4b58-a66e-8ad1d471e00d" />
 
 ---
 
